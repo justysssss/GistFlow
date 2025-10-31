@@ -19,6 +19,7 @@ export default function App() {
     const [savedTheme, setSavedTheme] = useState<Theme>('violet');
     const [saveChats, setSaveChats] = useState<boolean>(false);
     const [shortcutsEnabled, setShortcutsEnabled] = useState<boolean>(true);
+    const [font, setFont] = useState<'s' | 'm' | 'l'>('m');
     // highlight color removed
     const [toast, setToast] = useState<string>("");
 
@@ -41,7 +42,7 @@ export default function App() {
         refreshEnabled();
         // Load settings from storage
         try {
-            chrome.storage?.sync?.get({ GF_TONE: "concise", GF_SIDE: "right", GEMINI_API_KEY: "", GF_BOTTOM_CHAT: true, GF_AUTOSTART_HOSTS: [], GF_THEME: 'violet', GF_SAVE_CHATS: false, GF_SHORTCUTS: true }, (r: { GF_TONE: Tone; GF_SIDE: Side; GEMINI_API_KEY: string; GF_BOTTOM_CHAT: boolean; GF_AUTOSTART_HOSTS: string[]; GF_THEME: Theme; GF_SAVE_CHATS: boolean; GF_SHORTCUTS: boolean }) => {
+            chrome.storage?.sync?.get({ GF_TONE: "concise", GF_SIDE: "right", GEMINI_API_KEY: "", GF_BOTTOM_CHAT: true, GF_AUTOSTART_HOSTS: [], GF_THEME: 'violet', GF_SAVE_CHATS: false, GF_SHORTCUTS: true, GF_FONT: 'm' }, (r: { GF_TONE: Tone; GF_SIDE: Side; GEMINI_API_KEY: string; GF_BOTTOM_CHAT: boolean; GF_AUTOSTART_HOSTS: string[]; GF_THEME: Theme; GF_SAVE_CHATS: boolean; GF_SHORTCUTS: boolean; GF_FONT: 's' | 'm' | 'l' }) => {
                 setTone(r.GF_TONE);
                 setSide(r.GF_SIDE);
                 setApiKey(r.GEMINI_API_KEY || "");
@@ -50,6 +51,7 @@ export default function App() {
                 setSavedTheme(r.GF_THEME || 'violet');
                 setSaveChats(Boolean(r.GF_SAVE_CHATS));
                 setShortcutsEnabled(r.GF_SHORTCUTS !== false);
+                setFont((r.GF_FONT || 'm'));
                 // set autostart for current host if present
                 chrome.tabs?.query({ active: true, currentWindow: true }, ([tab]) => {
                     const u = tab?.url ? new URL(tab.url) : null;
@@ -100,7 +102,6 @@ export default function App() {
         });
     };
 
-    const openOptions = () => chrome.runtime.openOptionsPage?.();
     const openSettings = () => setMode('settings');
     const openHelp = () => setMode('help');
     const goBack = () => { setMode('main'); setTimeout(() => { try { const c = document.querySelector('.frosty') as HTMLElement | null; if (c) c.scrollTop = 0; } catch { /* noop */ } }, 0); };
@@ -121,6 +122,21 @@ export default function App() {
                     el.classList.add(`gf-theme-${theme}`);
                 },
                 args: [t]
+            });
+        });
+    };
+    const applyFontToActiveTab = (f: 's' | 'm' | 'l') => {
+        chrome.tabs?.query({ active: true, currentWindow: true }, async ([tab]) => {
+            if (!tab?.id) return;
+            await chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                func: (ff: 's' | 'm' | 'l') => {
+                    const el = document.getElementById('gistflow-sidebar');
+                    if (!el) return;
+                    ['gf-font-s', 'gf-font-m', 'gf-font-l'].forEach(c => el.classList.remove(c));
+                    el.classList.add(`gf-font-${ff}`);
+                },
+                args: [f]
             });
         });
     };
@@ -165,7 +181,7 @@ export default function App() {
                 </div>
             ) : (
                 <div className="gf-pop-header">
-                    <button className="gf-back" onClick={goBack} title="Back">←</button>
+                    <button className="gf-back" onClick={goBack} title="Back">‹</button>
                     <span className="gf-title">{mode === 'settings' ? 'Settings' : 'Shortcuts'}</span>
                     <div className="gf-spacer" />
                 </div>
@@ -207,6 +223,20 @@ export default function App() {
                         }} />
                         <span>Show bottom chat bar</span>
                     </label>
+                    <div className="gf-row">
+                        <div className="gf-row-title">Output text size</div>
+                        <div className="gf-segment">
+                            {(['s', 'm', 'l'] as Array<'s' | 'm' | 'l'>).map(f => (
+                                <button key={f} className={`gf-seg ${font === f ? 'active' : ''}`} onClick={() => {
+                                    setFont(f);
+                                    try { chrome.storage?.sync?.set({ GF_FONT: f }); } catch { /* ignore */ }
+                                    applyFontToActiveTab(f);
+                                }}>
+                                    {f === 's' ? 'Small' : f === 'm' ? 'Medium' : 'Large'}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                     <label className="gf-switch">
                         <input type="checkbox" checked={saveChats} onChange={(e) => {
                             const v = e.target.checked; setSaveChats(v);
@@ -244,9 +274,7 @@ export default function App() {
                                 goBack();
                             }}
                         >Save</button>
-                        <button className="gf-btn ghost" onClick={openOptions}>Open full Options</button>
                     </div>
-                    <div className="gf-note small">On-device AI when available; Gemini key used as fallback.</div>
                 </div></div>
             )}
 

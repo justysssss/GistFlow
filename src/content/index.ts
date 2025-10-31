@@ -82,6 +82,10 @@ function injectStyles() {
   .gf-sidebar.gf-theme-teal { --gf-accent:#19c7b9; --gf-accent-shadow: rgba(25,199,185,.25); --gf-bg1: rgba(10,24,28,.95); --gf-bg2: rgba(8,18,22,.95); --gf-border: rgba(40,160,170,.25); }
   .gf-sidebar.gf-theme-sand { --gf-accent:#f0b56f; --gf-accent-shadow: rgba(240,181,111,.25); --gf-bg1: rgba(44,33,20,.95); --gf-bg2: rgba(27,21,14,.95); --gf-border: rgba(180,150,110,.28); }
   .gf-sidebar.gf-theme-forest { --gf-accent:#4cc38a; --gf-accent-shadow: rgba(76,195,138,.25); --gf-bg1: rgba(10,28,22,.95); --gf-bg2: rgba(6,20,16,.95); --gf-border: rgba(90,200,160,.22); }
+  /* Output font-size options */
+  .gf-sidebar.gf-font-s .gf-md, .gf-sidebar.gf-font-s .gf-bubble { font-size: 13px; }
+  .gf-sidebar.gf-font-m .gf-md, .gf-sidebar.gf-font-m .gf-bubble { font-size: 14px; }
+  .gf-sidebar.gf-font-l .gf-md, .gf-sidebar.gf-font-l .gf-bubble { font-size: 16px; }
   `;
   document.head.appendChild(style);
 }
@@ -113,6 +117,7 @@ function extractVisibleText(): string {
 let cachedText: string | null = null;
 let selectionCache: { text: string } | null = null;
 let SAVE_CHATS = false;
+let BOTTOM_CHAT_PREF = true;
 
 function getPageText(): string {
   if (!cachedText) {
@@ -170,8 +175,9 @@ function ensureSidebar(): HTMLDivElement {
       if (icon) icon.textContent = el?.classList.contains('gf-left') ? '❮' : '❯';
     });
     chrome.storage?.sync?.get({ GF_BOTTOM_CHAT: true }, (r: { GF_BOTTOM_CHAT: boolean }) => {
+      BOTTOM_CHAT_PREF = !!r.GF_BOTTOM_CHAT;
       const bar = el?.querySelector('#gf-bottom-chat') as HTMLDivElement | null;
-      if (bar) bar.style.display = r.GF_BOTTOM_CHAT ? '' : 'none';
+      if (bar) bar.style.display = BOTTOM_CHAT_PREF ? '' : 'none';
     });
     // Read save chats and shortcuts flags
     chrome.storage?.sync?.get({ GF_SAVE_CHATS: false, GF_SHORTCUTS: true }, (r: { GF_SAVE_CHATS: boolean; GF_SHORTCUTS: boolean }) => {
@@ -183,12 +189,22 @@ function ensureSidebar(): HTMLDivElement {
       themes.forEach(c => el?.classList.remove(c));
       el?.classList.add(`gf-theme-${r.GF_THEME}`);
     });
+    // Apply font size preference
+    chrome.storage?.sync?.get({ GF_FONT: 'm' }, (r: { GF_FONT: 's'|'m'|'l' }) => {
+      ['gf-font-s','gf-font-m','gf-font-l'].forEach(c => el?.classList.remove(c));
+      el?.classList.add(`gf-font-${r.GF_FONT}`);
+    });
     chrome.storage?.onChanged.addListener((changes, area) => {
       if (area !== 'sync') return;
       if (changes.GF_BOTTOM_CHAT) {
         const v = changes.GF_BOTTOM_CHAT.newValue as boolean;
+        BOTTOM_CHAT_PREF = !!v;
         const bar = el?.querySelector('#gf-bottom-chat') as HTMLDivElement | null;
-        if (bar) bar.style.display = v ? '' : 'none';
+        if (bar) {
+          if (CURRENT_TAB === 'actions') bar.style.display = 'none';
+          else if (CURRENT_TAB === 'chat') bar.style.display = '';
+          else bar.style.display = BOTTOM_CHAT_PREF ? '' : 'none';
+        }
       }
       if (changes.GF_SIDE) {
         const v = changes.GF_SIDE.newValue as 'left' | 'right';
@@ -199,6 +215,11 @@ function ensureSidebar(): HTMLDivElement {
         const themes = ['gf-theme-violet', 'gf-theme-teal', 'gf-theme-sand', 'gf-theme-forest'];
         themes.forEach(c => el?.classList.remove(c));
         el?.classList.add(`gf-theme-${v}`);
+      }
+      if (changes.GF_FONT) {
+        const v = changes.GF_FONT.newValue as 's'|'m'|'l';
+        ['gf-font-s','gf-font-m','gf-font-l'].forEach(c => el?.classList.remove(c));
+        el?.classList.add(`gf-font-${v}`);
       }
       if (changes.GF_SAVE_CHATS) {
         SAVE_CHATS = !!changes.GF_SAVE_CHATS.newValue as boolean;
@@ -489,7 +510,7 @@ function runActions() {
     // Push UI near bottom
     main.innerHTML = `
       <div style="display:flex;flex-direction:column;height:100%;justify-content:flex-end;gap:10px;">
-        <div id="gf-act-out" class="gf-panel" style="margin-bottom:6px;"></div>
+        <div id="gf-act-out" style="margin-bottom:6px;"></div>
         <div class="gf-panel" style="display:flex;flex-direction:column;gap:8px;">
           <div class="gf-note">Context: <strong>Gmail</strong>. Enter 3–5 keywords to guide the draft.</div>
           <div id="gf-act-suggest" class="gf-suggestions"></div>
@@ -580,7 +601,7 @@ Respond succinctly, include a greeting and optional bullet points, and end with 
           </div>
         </div>
       </div>
-      <div id="gf-act-out" class="gf-panel" style="margin-top:10px;"></div>
+      <div id="gf-act-out" style="margin-top:10px;"></div>
       </div>
     `;
     const out = document.getElementById('gf-act-out') as HTMLDivElement;
@@ -597,7 +618,7 @@ Respond succinctly, include a greeting and optional bullet points, and end with 
       out.innerHTML = `<div class="gf-note">Summarizing…</div>`;
       try {
         const a = await ask('Summarize the following GitHub issue/PR discussion in 5-7 bullet points with clear sections.', ctx);
-        out.innerHTML = renderMarkdown(a);
+  out.innerHTML = renderMarkdown(a);
         copyBtn.disabled = false; insertBtn.disabled = false;
         copyBtn.onclick = async () => { try { await navigator.clipboard.writeText(a); copyBtn.textContent = 'Copied'; setTimeout(()=>copyBtn.textContent='Copy', 1200); } catch (err) { void err; } };
         insertBtn.textContent = 'Insert';
@@ -635,7 +656,7 @@ Keep it concise, actionable, and respectful. Tone: ${tone}.`;
           <button id="gf-doc-steps" class="gf-btn">Convert to step-by-step list</button>
         </div>
       </div>
-      <div id="gf-act-out" class="gf-panel" style="margin-top:10px;"></div>
+      <div id="gf-act-out" style="margin-top:10px;"></div>
       </div>
     `;
     const out = document.getElementById('gf-act-out') as HTMLDivElement;
@@ -675,7 +696,7 @@ Keep it concise, actionable, and respectful. Tone: ${tone}.`;
           <button id="gf-shop-spec" class="gf-btn">Extract product specifications</button>
         </div>
       </div>
-      <div id="gf-act-out" class="gf-panel" style="margin-top:10px;"></div>
+      <div id="gf-act-out" style="margin-top:10px;"></div>
       </div>
     `;
     const out = document.getElementById('gf-act-out') as HTMLDivElement;
@@ -706,46 +727,138 @@ Keep it concise, actionable, and respectful. Tone: ${tone}.`;
 const ui = ensureSidebar();
 const main = document.getElementById("gf-main")!;
 const tabs = document.getElementById("gf-tabs")!;
+let CURRENT_TAB: 'summary'|'points'|'actions'|'chat' = 'actions';
+let summaryCacheHtml: string | null = null;
+let pointsCacheHtml: string | null = null;
+let summaryToken = 0;
+let pointsToken = 0;
 
-function runSummary() {
-  main.innerHTML = `<div class="gf-panel gf-note">Summarizing…</div>`;
-  const text = getPageText();
-  summarize(text).then(tldr => {
-    main.innerHTML = `
-      <div class="gf-toolbar">
-        <button class="gf-btn" id="gf-copy">Copy</button>
-      </div>
-      <div class="gf-panel">${renderMarkdown(tldr)}</div>`;
-    bindCopy();
-  }).catch(renderError);
+// Persistent cache per URL for Summary/Points
+type CacheEntry = { html: string; ts: number };
+type CacheStores = { GF_SUMMARY_CACHE?: Record<string, CacheEntry>; GF_POINTS_CACHE?: Record<string, CacheEntry> };
+async function getCachedHtml(kind: 'summary'|'points'): Promise<string | null> {
+  try {
+    const key = kind === 'summary' ? 'GF_SUMMARY_CACHE' : 'GF_POINTS_CACHE';
+    const store = await new Promise<unknown>((resolve) => chrome.storage?.local?.get({ [key]: {} }, resolve)) as CacheStores;
+    const map = store?.[kind === 'summary' ? 'GF_SUMMARY_CACHE' : 'GF_POINTS_CACHE'];
+    const url = location.href;
+    const hit = map && map[url];
+    return hit?.html || null;
+  } catch { return null; }
+}
+async function setCachedHtml(kind: 'summary'|'points', html: string): Promise<void> {
+  try {
+    const key = kind === 'summary' ? 'GF_SUMMARY_CACHE' : 'GF_POINTS_CACHE';
+    const store = await new Promise<unknown>((resolve) => chrome.storage?.local?.get({ [key]: {} }, resolve)) as CacheStores & Record<string, unknown>;
+    const map = (store?.[key] || {}) as Record<string, CacheEntry>;
+    map[location.href] = { html, ts: Date.now() };
+    chrome.storage?.local?.set({ [key]: map });
+  } catch { /* ignore */ }
+}
+async function clearCachedHtml(kind: 'summary'|'points'): Promise<void> {
+  try {
+    const key = kind === 'summary' ? 'GF_SUMMARY_CACHE' : 'GF_POINTS_CACHE';
+    const store = await new Promise<unknown>((resolve) => chrome.storage?.local?.get({ [key]: {} }, resolve)) as CacheStores & Record<string, unknown>;
+    const map = (store?.[key] || {}) as Record<string, CacheEntry>;
+    delete map[location.href];
+    chrome.storage?.local?.set({ [key]: map });
+  } catch { /* ignore */ }
 }
 
-function runPoints() {
-  main.innerHTML = `<div class="gf-panel gf-note">Extracting key points…</div>`;
+async function runSummary() {
+  // Try persistent cache first
+  const cached = await getCachedHtml('summary');
+  if (cached) { summaryCacheHtml = cached; main.innerHTML = cached; bindCopy(); bindRefresh('summary'); return; }
+  if (summaryCacheHtml) { main.innerHTML = summaryCacheHtml; bindCopy(); bindRefresh('summary'); return; }
+  main.innerHTML = `<div class="gf-panel gf-note">Summarizing…</div>`;
   const text = getPageText();
-  keyPoints(text).then(points => {
-    main.innerHTML = `
+  const my = ++summaryToken;
+  summarize(text).then(async (tldr) => {
+    if (my !== summaryToken) return; // a newer run superseded this one
+    const html = `
       <div class="gf-toolbar">
         <button class="gf-btn" id="gf-copy">Copy</button>
+        <button class="gf-btn" id="gf-refresh">Refresh</button>
+      </div>
+      <div class="gf-panel">${renderMarkdown(tldr)}</div>`;
+    summaryCacheHtml = html;
+    await setCachedHtml('summary', html);
+    if (CURRENT_TAB === 'summary') { main.innerHTML = html; bindCopy(); bindRefresh('summary'); }
+  }).catch(e => { if (my === summaryToken) { if (CURRENT_TAB === 'summary') renderError(e); } });
+}
+
+async function runPoints() {
+  const cached = await getCachedHtml('points');
+  if (cached) { pointsCacheHtml = cached; main.innerHTML = cached; bindCopy(); bindRefresh('points'); return; }
+  if (pointsCacheHtml) { main.innerHTML = pointsCacheHtml; bindCopy(); bindRefresh('points'); return; }
+  main.innerHTML = `<div class="gf-panel gf-note">Extracting key points…</div>`;
+  const text = getPageText();
+  const my = ++pointsToken;
+  keyPoints(text).then(async (points) => {
+    if (my !== pointsToken) return; // superseded
+    const html = `
+      <div class="gf-toolbar">
+        <button class="gf-btn" id="gf-copy">Copy</button>
+        <button class="gf-btn" id="gf-refresh">Refresh</button>
       </div>
       <div class="gf-panel">
         <div class="gf-list">
           ${points.map(p => `<div class="gf-row"><input class="gf-checkbox" type="checkbox"/> <div>${escapeHtml(p)}</div></div>`).join("")}
         </div>
       </div>`;
-    bindCopy();
-  }).catch(renderError);
+    pointsCacheHtml = html;
+    await setCachedHtml('points', html);
+    if (CURRENT_TAB === 'points') { main.innerHTML = html; bindCopy(); bindRefresh('points'); }
+  }).catch(e => { if (my === pointsToken) { if (CURRENT_TAB === 'points') renderError(e); } });
 }
 
 function runChat() {
-  // Only render the chat log; input lives in the persistent bottom bar
+  // Render the chat log
   main.innerHTML = `<div id="gf-chat-log" class="gf-chat-log"></div>`;
-  if (SAVE_CHATS) {
-    void loadAndRenderChatHistory();
+  if (SAVE_CHATS) { void loadAndRenderChatHistory(); }
+  // Render inline composer only if the bottom bar is not visible for any reason
+  const bar = document.getElementById('gf-bottom-chat') as HTMLDivElement | null;
+  const isVisible = !!bar && getComputedStyle(bar).display !== 'none';
+  if (!isVisible) {
+    const wrap = document.createElement('div');
+    wrap.className = 'gf-panel';
+    wrap.style.marginTop = '8px';
+    wrap.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <div class="gf-suggestions" id="gf-inline-suggest"></div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input id="gf-inline-q" class="gf-input" placeholder="Ask about this page…" />
+          <button id="gf-inline-ask" class="gf-btn">Ask</button>
+        </div>
+      </div>`;
+    main.appendChild(wrap);
+  const inlineAsk = wrap.querySelector('#gf-inline-ask') as HTMLButtonElement;
+  const inlineQ = wrap.querySelector('#gf-inline-q') as HTMLInputElement;
+  const log = document.getElementById('gf-chat-log') as HTMLDivElement | null;
+    const append = (who: 'You'|'GistAI', text: string) => {
+      if (!log) return;
+      const row = document.createElement('div');
+      row.className = 'gf-chat-row ' + (who === 'You' ? 'me' : 'ai');
+      const bubble = document.createElement('div');
+      bubble.className = 'gf-bubble' + (who === 'You' ? ' me' : '');
+      bubble.innerHTML = `<div class="who">${who}</div>${renderMarkdown(text)}`;
+      row.appendChild(bubble); log.appendChild(row); log.scrollTop = log.scrollHeight;
+      if (SAVE_CHATS) void persistChatMessage(who, text);
+    };
+    const go = async () => {
+      const q = inlineQ.value.trim(); if (!q) return;
+      append('You', q); inlineQ.value = '';
+      try { inlineAsk.disabled = true; const a = await ask(q, getPageText().slice(0,8000)); append('GistAI', a); }
+      catch (e) { append('GistAI', e instanceof Error ? e.message : String(e)); }
+      finally { inlineAsk.disabled = false; }
+    };
+    inlineAsk.onclick = () => { void go(); };
+    inlineQ.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); void go(); } });
   }
 }
 
 function setActive(tab: 'summary' | 'points' | 'actions' | 'chat') {
+  CURRENT_TAB = tab;
   ["gf-summary", "gf-points", "gf-actions", "gf-chat"].forEach(id => {
     const btn = document.getElementById(id);
     if (!btn) return;
@@ -761,13 +874,14 @@ function setActive(tab: 'summary' | 'points' | 'actions' | 'chat') {
     if (tab === 'actions') {
       bar.style.display = 'none';
       if (actionbar) actionbar.style.display = 'flex';
+    } else if (tab === 'chat') {
+      if (actionbar) actionbar.style.display = 'none';
+      // Always show bar on Chat tab regardless of preference
+      bar.style.display = '';
     } else {
       if (actionbar) actionbar.style.display = 'none';
-      try {
-        chrome.storage?.sync?.get({ GF_BOTTOM_CHAT: true }, (r: { GF_BOTTOM_CHAT: boolean }) => {
-          bar.style.display = r.GF_BOTTOM_CHAT ? '' : 'none';
-        });
-      } catch { bar.style.display = ''; }
+      // Use stored preference to avoid flicker/duplication
+      bar.style.display = BOTTOM_CHAT_PREF ? '' : 'none';
     }
   }
 }
@@ -826,6 +940,17 @@ function bindCopy() {
       setTimeout(() => (copyBtn.textContent = "Copy"), 1200);
     };
   }
+}
+
+function bindRefresh(kind?: 'summary'|'points') {
+  const btn = document.getElementById('gf-refresh') as HTMLButtonElement | null;
+  if (!btn || !kind) return;
+  btn.onclick = async () => {
+    // Clear persistent and in-memory cache and rerun
+    await clearCachedHtml(kind);
+    if (kind === 'summary') { summaryCacheHtml = null; runSummary(); }
+    else { pointsCacheHtml = null; runPoints(); }
+  };
 }
 
 // Persistent bottom chat bar handlers (single input source)
