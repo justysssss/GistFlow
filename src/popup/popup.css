@@ -16,6 +16,8 @@ html,body{margin:0; background: var(--bg-grad); height: 100%;}
 .frosty {
   width: 320px;
   min-height: 480px;
+  max-height: 480px;
+  overflow-y: auto;
   padding: 16px 14px 12px 14px;
   color: var(--text);
   font: 14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;

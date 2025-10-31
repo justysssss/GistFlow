@@ -17,6 +17,8 @@ export default function App() {
     const [autoStartHere, setAutoStartHere] = useState<boolean>(false);
     const [theme, setTheme] = useState<Theme>('violet');
     const [savedTheme, setSavedTheme] = useState<Theme>('violet');
+    const [saveChats, setSaveChats] = useState<boolean>(false);
+    const [shortcutsEnabled, setShortcutsEnabled] = useState<boolean>(true);
     // highlight color removed
     const [toast, setToast] = useState<string>("");
 
@@ -39,13 +41,15 @@ export default function App() {
         refreshEnabled();
         // Load settings from storage
         try {
-            chrome.storage?.sync?.get({ GF_TONE: "concise", GF_SIDE: "right", GEMINI_API_KEY: "", GF_BOTTOM_CHAT: true, GF_AUTOSTART_HOSTS: [], GF_THEME: 'violet' }, (r: { GF_TONE: Tone; GF_SIDE: Side; GEMINI_API_KEY: string; GF_BOTTOM_CHAT: boolean; GF_AUTOSTART_HOSTS: string[]; GF_THEME: Theme }) => {
+            chrome.storage?.sync?.get({ GF_TONE: "concise", GF_SIDE: "right", GEMINI_API_KEY: "", GF_BOTTOM_CHAT: true, GF_AUTOSTART_HOSTS: [], GF_THEME: 'violet', GF_SAVE_CHATS: false, GF_SHORTCUTS: true }, (r: { GF_TONE: Tone; GF_SIDE: Side; GEMINI_API_KEY: string; GF_BOTTOM_CHAT: boolean; GF_AUTOSTART_HOSTS: string[]; GF_THEME: Theme; GF_SAVE_CHATS: boolean; GF_SHORTCUTS: boolean }) => {
                 setTone(r.GF_TONE);
                 setSide(r.GF_SIDE);
                 setApiKey(r.GEMINI_API_KEY || "");
                 setBottomChat(Boolean(r.GF_BOTTOM_CHAT));
                 setTheme(r.GF_THEME || 'violet');
                 setSavedTheme(r.GF_THEME || 'violet');
+                setSaveChats(Boolean(r.GF_SAVE_CHATS));
+                setShortcutsEnabled(r.GF_SHORTCUTS !== false);
                 // set autostart for current host if present
                 chrome.tabs?.query({ active: true, currentWindow: true }, ([tab]) => {
                     const u = tab?.url ? new URL(tab.url) : null;
@@ -99,7 +103,7 @@ export default function App() {
     const openOptions = () => chrome.runtime.openOptionsPage?.();
     const openSettings = () => setMode('settings');
     const openHelp = () => setMode('help');
-    const goBack = () => setMode('main');
+    const goBack = () => { setMode('main'); setTimeout(() => { try { const c = document.querySelector('.frosty') as HTMLElement | null; if (c) c.scrollTop = 0; } catch { /* noop */ } }, 0); };
     const showToast = (msg: string) => {
         setToast(msg);
         setTimeout(() => setToast(""), 1600);
@@ -202,6 +206,20 @@ export default function App() {
                             try { chrome.storage?.sync?.set({ GF_BOTTOM_CHAT: v }); } catch { /* ignore */ }
                         }} />
                         <span>Show bottom chat bar</span>
+                    </label>
+                    <label className="gf-switch">
+                        <input type="checkbox" checked={saveChats} onChange={(e) => {
+                            const v = e.target.checked; setSaveChats(v);
+                            try { chrome.storage?.sync?.set({ GF_SAVE_CHATS: v }); } catch { /* ignore */ }
+                        }} />
+                        <span>Save chats on this device</span>
+                    </label>
+                    <label className="gf-switch">
+                        <input type="checkbox" checked={shortcutsEnabled} onChange={(e) => {
+                            const v = e.target.checked; setShortcutsEnabled(v);
+                            try { chrome.storage?.sync?.set({ GF_SHORTCUTS: v }); } catch { /* ignore */ }
+                        }} />
+                        <span>Enable keyboard shortcuts</span>
                     </label>
                     <label className="gf-switch">
                         <input type="checkbox" checked={autoStartHere} onChange={async (e) => {

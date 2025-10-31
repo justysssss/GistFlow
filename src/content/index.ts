@@ -29,6 +29,7 @@ function injectStyles() {
     .gf-btn[disabled] { opacity: .6; cursor: not-allowed; }
   .gf-btn.primary, .gf-btn.active { background: var(--gf-accent); border-color: var(--gf-accent); color: white; }
   .gf-btn.primary:hover, .gf-btn.active:hover { filter: brightness(1.05); }
+  .gf-btn.wide { min-width: 120px; padding-left: 14px; padding-right: 14px; }
     .gf-spacer { flex: 1; }
   .gf-close, .gf-gear, .gf-collapse { width: 34px; height: 34px; display: grid; place-items: center; font-size: 16px; font-weight: 700; border-radius: 10px; border: 1px solid rgba(160,140,230,.22); background: rgba(255,255,255,.06); }
   .gf-close:hover, .gf-gear:hover, .gf-collapse:hover { background: rgba(255,255,255,.12); }
@@ -111,6 +112,7 @@ function extractVisibleText(): string {
 
 let cachedText: string | null = null;
 let selectionCache: { text: string } | null = null;
+let SAVE_CHATS = false;
 
 function getPageText(): string {
   if (!cachedText) {
@@ -171,6 +173,11 @@ function ensureSidebar(): HTMLDivElement {
       const bar = el?.querySelector('#gf-bottom-chat') as HTMLDivElement | null;
       if (bar) bar.style.display = r.GF_BOTTOM_CHAT ? '' : 'none';
     });
+    // Read save chats and shortcuts flags
+    chrome.storage?.sync?.get({ GF_SAVE_CHATS: false, GF_SHORTCUTS: true }, (r: { GF_SAVE_CHATS: boolean; GF_SHORTCUTS: boolean }) => {
+      SAVE_CHATS = !!r.GF_SAVE_CHATS;
+      setShortcuts(r.GF_SHORTCUTS !== false);
+    });
     chrome.storage?.sync?.get({ GF_THEME: 'violet' }, (r: { GF_THEME: 'violet' | 'teal' | 'sand' | 'forest' }) => {
       const themes = ['gf-theme-violet', 'gf-theme-teal', 'gf-theme-sand', 'gf-theme-forest'];
       themes.forEach(c => el?.classList.remove(c));
@@ -193,11 +200,103 @@ function ensureSidebar(): HTMLDivElement {
         themes.forEach(c => el?.classList.remove(c));
         el?.classList.add(`gf-theme-${v}`);
       }
+      if (changes.GF_SAVE_CHATS) {
+        SAVE_CHATS = !!changes.GF_SAVE_CHATS.newValue as boolean;
+      }
+      if (changes.GF_SHORTCUTS) {
+        setShortcuts(!!changes.GF_SHORTCUTS.newValue as boolean);
+      }
     });
   } catch { /* noop */ }
   return el;
 }
 
+// Keyboard shortcuts setup/teardown
+let shortcutsListener: ((e: KeyboardEvent) => void) | null = null;
+function setShortcuts(enable: boolean) {
+  if (shortcutsListener) {
+    window.removeEventListener('keydown', shortcutsListener, true);
+    shortcutsListener = null;
+  }
+  if (!enable) return;
+  shortcutsListener = (e: KeyboardEvent) => {
+    if (!e.altKey || e.repeat) return;
+    const key = e.key.toLowerCase();
+    // Alt+S — toggle sidebar
+    if (key === 's') {
+      e.preventDefault();
+      const el = document.getElementById('gistflow-sidebar');
+      if (el && !el.classList.contains('gf-hidden')) el.classList.add('gf-hidden');
+      else ensureSidebar();
+      return;
+    }
+    // Alt+C — open Chat
+    if (key === 'c') {
+      e.preventDefault();
+      ensureSidebar(); setActive('chat'); runChat();
+      return;
+    }
+    // Alt+L — toggle left/right side
+    if (key === 'l') {
+      e.preventDefault();
+      const el = ensureSidebar();
+      const nowLeft = !el.classList.contains('gf-left');
+      if (nowLeft) el.classList.add('gf-left'); else el.classList.remove('gf-left');
+      try { chrome.storage?.sync?.set({ GF_SIDE: nowLeft ? 'left' : 'right' }); } catch { /* noop */ }
+      return;
+    }
+  };
+  window.addEventListener('keydown', shortcutsListener, true);
+}
+
+// Chat persistence helpers
+type ChatMsg = { who: 'You' | 'GistAI'; text: string; ts: number };
+async function persistChatMessage(who: 'You' | 'GistAI', text: string) {
+  const host = location.hostname;
+  try {
+  const store = await new Promise<unknown>((resolve) => chrome.storage?.local?.get({ GF_CHATS: {} }, resolve)) as { GF_CHATS?: Record<string, ChatMsg[]> };
+  const all = store?.GF_CHATS || {} as Record<string, ChatMsg[]>;
+    const arr: ChatMsg[] = Array.isArray(all[host]) ? all[host] : [];
+    arr.push({ who, text, ts: Date.now() });
+    while (arr.length > 50) arr.shift();
+    all[host] = arr;
+    chrome.storage?.local?.set({ GF_CHATS: all });
+  } catch { /* ignore */ }
+}
+
+async function loadAndRenderChatHistory() {
+  const host = location.hostname;
+  try {
+  const store = await new Promise<unknown>((resolve) => chrome.storage?.local?.get({ GF_CHATS: {} }, resolve)) as { GF_CHATS?: Record<string, ChatMsg[]> };
+  const arr: ChatMsg[] = (store?.GF_CHATS && store.GF_CHATS[host]) ? store.GF_CHATS[host] : [];
+    const log = document.getElementById('gf-chat-log') as HTMLDivElement | null;
+    if (!log) return;
+    for (const m of arr) {
+      const wrap = document.createElement('div');
+      wrap.className = 'gf-chat-row ' + (m.who === 'You' ? 'me' : 'ai');
+      const bubble = document.createElement('div');
+      bubble.className = 'gf-bubble' + (m.who === 'You' ? ' me' : '');
+      bubble.innerHTML = `<div class="who">${m.who}</div>${renderMarkdown(m.text)}`;
+      wrap.appendChild(bubble);
+      log.appendChild(wrap);
+    }
+    log.scrollTop = log.scrollHeight;
+  } catch { /* ignore */ }
+}
+
+// Actions outputs persistence (simple rolling log)
+async function persistActionOutput(kind: SiteKind, text: string) {
+  const host = location.hostname;
+  try {
+  const store = await new Promise<unknown>((resolve) => chrome.storage?.local?.get({ GF_ACTIONS: {} }, resolve)) as { GF_ACTIONS?: Record<string, Array<{ kind: SiteKind; text: string; ts: number }>> };
+  const all = store?.GF_ACTIONS || {} as Record<string, Array<{ kind: SiteKind; text: string; ts: number }>>;
+    const arr: Array<{ kind: SiteKind; text: string; ts: number }> = Array.isArray(all[host]) ? all[host] : [];
+    arr.push({ kind, text, ts: Date.now() });
+    while (arr.length > 50) arr.shift();
+    all[host] = arr;
+    chrome.storage?.local?.set({ GF_ACTIONS: all });
+  } catch { /* ignore */ }
+}
 function escapeHtml(s: string) {
   return s.replace(/[&<>"']/g, (m) => ({
     "&": "&amp;",
@@ -390,12 +489,12 @@ function runActions() {
     // Push UI near bottom
     main.innerHTML = `
       <div style="display:flex;flex-direction:column;height:100%;justify-content:flex-end;gap:10px;">
+        <div id="gf-act-out" class="gf-panel" style="margin-bottom:6px;"></div>
         <div class="gf-panel" style="display:flex;flex-direction:column;gap:8px;">
           <div class="gf-note">Context: <strong>Gmail</strong>. Enter 3–5 keywords to guide the draft.</div>
           <div id="gf-act-suggest" class="gf-suggestions"></div>
           <input id="gf-act-kw" class="gf-input" placeholder="Write your keywords here (Gmail thread)…" />
         </div>
-        <div id="gf-act-out" class="gf-panel"></div>
       </div>
     `;
     const kwEl = document.getElementById('gf-act-kw') as HTMLInputElement;
@@ -426,7 +525,7 @@ Respond succinctly, include a greeting and optional bullet points, and end with 
     // Populate bottom actionbar
     if (actionbar) {
       actionbar.innerHTML = `
-        <button id="gf-act-gen" class="gf-btn primary">Generate</button>
+        <button id="gf-act-gen" class="gf-btn primary wide">🪄 Generate</button>
         <button id="gf-act-copy" class="gf-btn" disabled>Copy</button>
         <button id="gf-act-insert" class="gf-btn" disabled>Insert</button>
       `;
@@ -441,6 +540,7 @@ Respond succinctly, include a greeting and optional bullet points, and end with 
           const prompt = buildPrompt(kwEl.value) + `\n\nTone: ${tone}.`;
           const a = await ask(prompt, ctx);
           out.innerHTML = renderMarkdown(a);
+          if (SAVE_CHATS) { await persistActionOutput(kind, a); }
           copyBtn.disabled = false; insertBtn.disabled = false;
           copyBtn.onclick = async () => { try { await navigator.clipboard.writeText(a); copyBtn.textContent = 'Copied'; setTimeout(()=>copyBtn.textContent='Copy', 1200); } catch (err) { void err; } };
           insertBtn.textContent = 'Insert';
@@ -640,6 +740,9 @@ function runPoints() {
 function runChat() {
   // Only render the chat log; input lives in the persistent bottom bar
   main.innerHTML = `<div id="gf-chat-log" class="gf-chat-log"></div>`;
+  if (SAVE_CHATS) {
+    void loadAndRenderChatHistory();
+  }
 }
 
 function setActive(tab: 'summary' | 'points' | 'actions' | 'chat') {
@@ -773,6 +876,7 @@ if (bottomAsk && bottomQ) {
     wrap.appendChild(bubble);
     log.appendChild(wrap);
     log.scrollTop = log.scrollHeight;
+    if (SAVE_CHATS) void persistChatMessage(who, text);
   };
 
   const goChat = async () => {
