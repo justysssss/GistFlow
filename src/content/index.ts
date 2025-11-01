@@ -122,6 +122,8 @@ let cachedText: string | null = null;
 let selectionCache: { text: string } | null = null;
 let SAVE_CHATS = false;
 let BOTTOM_CHAT_PREF = true;
+// In-memory session chat log (used when SAVE_CHATS is off)
+const SESSION_CHAT: ChatMsg[] = [];
 
 function getPageText(): string {
   if (!cachedText) {
@@ -294,19 +296,24 @@ async function loadAndRenderChatHistory() {
   try {
   const store = await new Promise<unknown>((resolve) => chrome.storage?.local?.get({ GF_CHATS: {} }, resolve)) as { GF_CHATS?: Record<string, ChatMsg[]> };
   const arr: ChatMsg[] = (store?.GF_CHATS && store.GF_CHATS[host]) ? store.GF_CHATS[host] : [];
-    const log = document.getElementById('gf-chat-log') as HTMLDivElement | null;
-    if (!log) return;
-    for (const m of arr) {
-      const wrap = document.createElement('div');
-      wrap.className = 'gf-chat-row ' + (m.who === 'You' ? 'me' : 'ai');
-      const bubble = document.createElement('div');
-      bubble.className = 'gf-bubble' + (m.who === 'You' ? ' me' : '');
-      bubble.innerHTML = `<div class="who">${m.who}</div>${renderMarkdown(m.text)}`;
-      wrap.appendChild(bubble);
-      log.appendChild(wrap);
-    }
-    log.scrollTop = log.scrollHeight;
+    renderChatMessages(arr);
   } catch { /* ignore */ }
+}
+
+function renderChatMessages(messages: ChatMsg[]) {
+  const log = document.getElementById('gf-chat-log') as HTMLDivElement | null;
+  if (!log) return;
+  log.innerHTML = '';
+  for (const m of messages) {
+    const wrap = document.createElement('div');
+    wrap.className = 'gf-chat-row ' + (m.who === 'You' ? 'me' : 'ai');
+    const bubble = document.createElement('div');
+    bubble.className = 'gf-bubble' + (m.who === 'You' ? ' me' : '');
+    bubble.innerHTML = `<div class="who">${m.who}</div>${renderMarkdown(m.text)}`;
+    wrap.appendChild(bubble);
+    log.appendChild(wrap);
+  }
+  log.scrollTop = log.scrollHeight;
 }
 
 // Actions outputs persistence (simple rolling log)
@@ -581,142 +588,189 @@ Respond succinctly, include a greeting and optional bullet points, and end with 
   };
 
   const renderGithub = () => {
+    // Layout: output fills the space; actions live in sticky bottom bar
     main.innerHTML = `
-      <div style="display:flex;flex-direction:column;height:100%;justify-content:flex-end;gap:10px;">
-      <div class="gf-panel" style="display:flex;flex-direction:column;gap:10px;">
-        <div class="gf-note">Context: <strong>GitHub</strong></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button id="gf-gh-sum" class="gf-btn">Summarize this issue</button>
-          <button id="gf-gh-reply" class="gf-btn primary">Generate a reply draft</button>
-        </div>
-        <div id="gf-gh-form" style="display:none;gap:8px;flex-direction:column;">
-          <label class="gf-note">My intention:</label>
-          <select id="gf-gh-intent" class="gf-input">
-            <option>Asking a question</option>
-            <option>Requesting changes</option>
-            <option>Approving (LGTM)</option>
-          </select>
-          <label class="gf-note">Key points:</label>
-          <input id="gf-gh-kp" class="gf-input" placeholder="e.g., typo on line 45, needs test case" />
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button id="gf-gh-gen" class="gf-btn primary">Generate</button>
-            <button id="gf-act-copy" class="gf-btn" disabled>Copy</button>
-            <button id="gf-act-insert" class="gf-btn" disabled>Insert</button>
-          </div>
-        </div>
-      </div>
-      <div id="gf-act-out" style="margin-top:10px;"></div>
+      <div style="display:flex;flex-direction:column;height:100%;gap:10px;">
+        <div id="gf-act-out" style="flex:1 1 auto; overflow:auto;"></div>
+        <div id="gf-gh-form" class="gf-panel" style="display:none;gap:8px;flex-direction:column;"></div>
       </div>
     `;
     const out = document.getElementById('gf-act-out') as HTMLDivElement;
-    const btnSum = document.getElementById('gf-gh-sum') as HTMLButtonElement;
-    const btnReply = document.getElementById('gf-gh-reply') as HTMLButtonElement;
     const form = document.getElementById('gf-gh-form') as HTMLDivElement;
-    const copyBtn = document.getElementById('gf-act-copy') as HTMLButtonElement;
-    const insertBtn = document.getElementById('gf-act-insert') as HTMLButtonElement;
-    const gen = document.getElementById('gf-gh-gen') as HTMLButtonElement;
-    const intent = document.getElementById('gf-gh-intent') as HTMLSelectElement;
-    const kp = document.getElementById('gf-gh-kp') as HTMLInputElement;
 
-    btnSum.onclick = async () => {
+    if (actionbar) {
+      actionbar.innerHTML = `
+        <button id="gf-gh-sum" class="gf-btn">Summarize this issue</button>
+        <button id="gf-gh-reply" class="gf-btn primary">Generate a reply draft</button>
+        <button id="gf-act-copy" class="gf-btn" disabled>Copy</button>
+        <button id="gf-act-insert" class="gf-btn" disabled>Insert</button>
+      `;
+    }
+    const btnSum = document.getElementById('gf-gh-sum') as HTMLButtonElement | null;
+    const btnReply = document.getElementById('gf-gh-reply') as HTMLButtonElement | null;
+    const copyBtn = document.getElementById('gf-act-copy') as HTMLButtonElement | null;
+    const insertBtn = document.getElementById('gf-act-insert') as HTMLButtonElement | null;
+
+    const enableActions = (aText: string) => {
+      if (copyBtn) {
+        copyBtn.disabled = false;
+        copyBtn.onclick = async () => { try { await navigator.clipboard.writeText(aText); copyBtn.textContent = 'Copied'; setTimeout(()=>copyBtn.textContent='Copy', 1200); } catch (err) { void err; } };
+      }
+      if (insertBtn) {
+        insertBtn.disabled = false;
+        insertBtn.textContent = 'Insert';
+        insertBtn.onclick = () => { if (!insertIntoSite('github', aText)) { copyBtn?.click(); } };
+      }
+    };
+
+    if (btnSum) btnSum.onclick = async () => {
+      if (btnSum) btnSum.disabled = true; if (btnReply) btnReply.disabled = true;
+      if (copyBtn) copyBtn.disabled = true; if (insertBtn) insertBtn.disabled = true;
       out.innerHTML = `<div class="gf-note">Summarizing…</div>`;
       try {
         const a = await ask('Summarize the following GitHub issue/PR discussion in 5-7 bullet points with clear sections.', ctx);
-  out.innerHTML = renderMarkdown(a);
-        copyBtn.disabled = false; insertBtn.disabled = false;
-        copyBtn.onclick = async () => { try { await navigator.clipboard.writeText(a); copyBtn.textContent = 'Copied'; setTimeout(()=>copyBtn.textContent='Copy', 1200); } catch (err) { void err; } };
-        insertBtn.textContent = 'Insert';
-        insertBtn.onclick = () => { if (!insertIntoSite('github', a)) { copyBtn.click(); } };
+        out.innerHTML = renderMarkdown(a);
+        enableActions(a);
       } catch (e) { out.innerHTML = `<div class="gf-error">${escapeHtml(String((e as Error)?.message || e))}</div>`; }
+      finally { if (btnSum) btnSum.disabled = false; if (btnReply) btnReply.disabled = false; }
     };
 
-    btnReply.onclick = () => { form.style.display = 'flex'; };
-    gen.onclick = async () => {
-      out.innerHTML = `<div class="gf-note">Generating…</div>`;
-      copyBtn.disabled = true; insertBtn.disabled = true; gen.disabled = true;
-      try {
-        const tone = await getToneFromStorage();
-        const prompt = `Draft a ${intent.value.toLowerCase()} comment for GitHub based on the context below. Address these key points: ${kp.value || '(none)'}.
-Keep it concise, actionable, and respectful. Tone: ${tone}.`;
-        const a = await ask(prompt, ctx);
-        out.innerHTML = renderMarkdown(a);
-        copyBtn.disabled = false; insertBtn.disabled = false;
-        copyBtn.onclick = async () => { try { await navigator.clipboard.writeText(a); copyBtn.textContent = 'Copied'; setTimeout(()=>copyBtn.textContent='Copy', 1200); } catch (err) { void err; } };
-        insertBtn.textContent = 'Insert';
-        insertBtn.onclick = () => { if (!insertIntoSite('github', a)) { copyBtn.click(); } };
-      } catch (e) { out.innerHTML = `<div class="gf-error">${escapeHtml(String((e as Error)?.message || e))}</div>`; }
-      finally { gen.disabled = false; }
+    const ensureForm = () => {
+      if (form.innerHTML) return;
+      form.style.display = 'flex';
+      form.innerHTML = `
+        <label class="gf-note">My intention:</label>
+        <select id="gf-gh-intent" class="gf-input">
+          <option>Asking a question</option>
+          <option>Requesting changes</option>
+          <option>Approving (LGTM)</option>
+        </select>
+        <label class="gf-note">Key points:</label>
+        <input id="gf-gh-kp" class="gf-input" placeholder="e.g., typo on line 45, needs test case" />
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button id="gf-gh-gen" class="gf-btn primary">Generate</button>
+          <button id="gf-gh-cancel" class="gf-btn">Hide</button>
+        </div>
+      `;
+  const cancel = form.querySelector('#gf-gh-cancel') as HTMLButtonElement | null;
+  if (cancel) cancel.onclick = () => { form.style.display = 'none'; };
+      const gen = form.querySelector('#gf-gh-gen') as HTMLButtonElement;
+      const intent = form.querySelector('#gf-gh-intent') as HTMLSelectElement;
+      const kp = form.querySelector('#gf-gh-kp') as HTMLInputElement;
+      gen.onclick = async () => {
+        out.innerHTML = `<div class="gf-note">Generating…</div>`;
+        if (copyBtn) copyBtn.disabled = true; if (insertBtn) insertBtn.disabled = true; gen.disabled = true;
+        try {
+          const tone = await getToneFromStorage();
+          const prompt = `Draft a ${intent.value.toLowerCase()} comment for GitHub based on the context below. Address these key points: ${kp.value || '(none)'}.\nKeep it concise, actionable, and respectful. Tone: ${tone}.`;
+          const a = await ask(prompt, ctx);
+          out.innerHTML = renderMarkdown(a);
+          enableActions(a);
+        } catch (e) { out.innerHTML = `<div class="gf-error">${escapeHtml(String((e as Error)?.message || e))}</div>`; }
+        finally { gen.disabled = false; }
+      };
+    };
+
+    if (btnReply) btnReply.onclick = () => {
+      if (form.style.display === 'none' || !form.innerHTML) { ensureForm(); form.style.display = 'flex'; }
+      else { form.style.display = 'none'; }
     };
   };
 
   const renderDocs = () => {
     main.innerHTML = `
-      <div style="display:flex;flex-direction:column;height:100%;justify-content:flex-end;gap:10px;">
-      <div class="gf-panel" style="display:flex;flex-direction:column;gap:10px;">
-        <div class="gf-note">Context: <strong>Documentation</strong></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button id="gf-doc-code" class="gf-btn">Extract all code snippets</button>
-          <button id="gf-doc-explain" class="gf-btn">Explain this concept (like I'm 15)</button>
-          <button id="gf-doc-steps" class="gf-btn">Convert to step-by-step list</button>
-        </div>
-      </div>
-      <div id="gf-act-out" style="margin-top:10px;"></div>
+      <div style="display:flex;flex-direction:column;height:100%;gap:10px;">
+        <div class="gf-panel"><div class="gf-note">Context: <strong>Documentation</strong></div></div>
+        <div id="gf-act-out" style="flex:1 1 auto; overflow:auto;"></div>
       </div>
     `;
     const out = document.getElementById('gf-act-out') as HTMLDivElement;
-    const btnCode = document.getElementById('gf-doc-code') as HTMLButtonElement;
-    const btnExplain = document.getElementById('gf-doc-explain') as HTMLButtonElement;
-    const btnSteps = document.getElementById('gf-doc-steps') as HTMLButtonElement;
 
-    btnCode.onclick = () => {
+    if (actionbar) {
+      actionbar.innerHTML = `
+        <button id="gf-doc-code" class="gf-btn">Extract code</button>
+        <button id="gf-doc-explain" class="gf-btn">Explain simply</button>
+        <button id="gf-doc-steps" class="gf-btn">Steps</button>
+        <button id="gf-doc-copy" class="gf-btn" disabled>Copy</button>
+      `;
+    }
+    const btnCode = document.getElementById('gf-doc-code') as HTMLButtonElement | null;
+    const btnExplain = document.getElementById('gf-doc-explain') as HTMLButtonElement | null;
+    const btnSteps = document.getElementById('gf-doc-steps') as HTMLButtonElement | null;
+    const btnCopy = document.getElementById('gf-doc-copy') as HTMLButtonElement | null;
+
+    const setCopy = (text: string) => {
+      if (!btnCopy) return;
+      btnCopy.disabled = false;
+      btnCopy.onclick = async () => { try { await navigator.clipboard.writeText(text); btnCopy.textContent = 'Copied'; setTimeout(()=>btnCopy.textContent='Copy',1200); } catch (err) { void err; } };
+    };
+
+    if (btnCode) btnCode.onclick = () => {
       const blocks = Array.from(document.querySelectorAll('pre code, pre'))
         .map(el => (el as HTMLElement).innerText.trim())
         .filter(Boolean);
       const combined = blocks.map(b => `\n\n\`\`\`\n${b}\n\`\`\``).join('');
-      out.innerHTML = renderMarkdown(combined || 'No code blocks found.');
-      // Offer a quick copy of all code
-      const copyAll = document.createElement('button');
-      copyAll.className = 'gf-btn'; copyAll.textContent = 'Copy Code';
-      copyAll.onclick = async () => { try { await navigator.clipboard.writeText(blocks.join('\n\n')); } catch (err) { void err; } };
-      out.prepend(copyAll);
+      const md = combined || 'No code blocks found.';
+      out.innerHTML = renderMarkdown(md);
+      setCopy(blocks.join('\n\n'));
     };
-    btnExplain.onclick = async () => {
+    if (btnExplain) btnExplain.onclick = async () => {
       out.innerHTML = `<div class="gf-note">Explaining…</div>`;
-      try { const a = await ask('Explain this content like I am 15. Be clear and use simple examples.', ctx); out.innerHTML = renderMarkdown(a); } catch (e) { out.innerHTML = `<div class=gf-error>${escapeHtml(String((e as Error)?.message || e))}</div>`; }
+      try { const a = await ask('Explain this content like I am 15. Be clear and use simple examples.', ctx); out.innerHTML = renderMarkdown(a); setCopy(a); } catch (e) { out.innerHTML = `<div class=gf-error>${escapeHtml(String((e as Error)?.message || e))}</div>`; }
     };
-    btnSteps.onclick = async () => {
+    if (btnSteps) btnSteps.onclick = async () => {
       out.innerHTML = `<div class="gf-note">Converting…</div>`;
-      try { const a = await ask('Convert the following content into a concise step-by-step list. Prefer numbered steps.', ctx); out.innerHTML = renderMarkdown(a); } catch (e) { out.innerHTML = `<div class=gf-error>${escapeHtml(String((e as Error)?.message || e))}</div>`; }
+      try { const a = await ask('Convert the following content into a concise step-by-step list. Prefer numbered steps.', ctx); out.innerHTML = renderMarkdown(a); setCopy(a); } catch (e) { out.innerHTML = `<div class=gf-error>${escapeHtml(String((e as Error)?.message || e))}</div>`; }
     };
   };
 
   const renderShopping = () => {
+    // Use the same shell as docs/github: output area above, action buttons stay in the bottom action bar
     main.innerHTML = `
-      <div style="display:flex;flex-direction:column;height:100%;justify-content:flex-end;gap:10px;">
-      <div class="gf-panel" style="display:flex;flex-direction:column;gap:10px;">
-        <div class="gf-note">Context: <strong>Shopping</strong></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button id="gf-shop-rev" class="gf-btn">Summarize reviews (Pros & Cons)</button>
-          <button id="gf-shop-spec" class="gf-btn">Extract product specifications</button>
-        </div>
-      </div>
-      <div id="gf-act-out" style="margin-top:10px;"></div>
-      </div>
-    `;
+      <div style="display:flex;flex-direction:column;height:100%;gap:10px;">
+        <div class="gf-panel"><div class="gf-note">Context: <strong>Shopping</strong></div></div>
+        <div id="gf-act-out" style="flex:1 1 auto; overflow:auto;"></div>
+      </div>`;
     const out = document.getElementById('gf-act-out') as HTMLDivElement;
-    const btnRev = document.getElementById('gf-shop-rev') as HTMLButtonElement;
-    const btnSpec = document.getElementById('gf-shop-spec') as HTMLButtonElement;
-    btnRev.onclick = async () => {
-      out.innerHTML = `<div class="gf-note">Summarizing…</div>`;
-      try { const a = await ask('From the reviews below, create a concise Pros & Cons list.', ctx); out.innerHTML = renderMarkdown(a); } catch (e) { out.innerHTML = `<div class=gf-error>${escapeHtml(String((e as Error)?.message || e))}</div>`; }
+
+    if (actionbar) {
+      actionbar.innerHTML = `
+        <button id="gf-shop-rev" class="gf-btn">Summarize reviews (Pros & Cons)</button>
+        <button id="gf-shop-spec" class="gf-btn">Extract product specifications</button>
+        <button id="gf-shop-copy" class="gf-btn" disabled>Copy</button>
+      `;
+    }
+    const btnRev = document.getElementById('gf-shop-rev') as HTMLButtonElement | null;
+    const btnSpec = document.getElementById('gf-shop-spec') as HTMLButtonElement | null;
+    const btnCopy = document.getElementById('gf-shop-copy') as HTMLButtonElement | null;
+
+    const setCopy = (text: string) => {
+      if (!btnCopy) return;
+      btnCopy.disabled = false;
+      btnCopy.onclick = async () => { try { await navigator.clipboard.writeText(text); btnCopy.textContent = 'Copied'; setTimeout(()=>btnCopy.textContent='Copy',1200); } catch (err) { void err; } };
     };
-    btnSpec.onclick = () => {
+
+    if (btnRev) btnRev.onclick = async () => {
+      if (btnRev) btnRev.disabled = true; if (btnSpec) btnSpec.disabled = true; if (btnCopy) btnCopy.disabled = true;
+      out.innerHTML = `<div class="gf-note">Summarizing reviews…</div>`;
+      try {
+        const a = await ask('From the reviews below, create a concise Pros & Cons list.', ctx);
+        out.innerHTML = renderMarkdown(a);
+        setCopy(a);
+        if (SAVE_CHATS) await persistActionOutput('shopping', a);
+      } catch (e) { out.innerHTML = `<div class=gf-error>${escapeHtml(String((e as Error)?.message || e))}</div>`; }
+      finally { if (btnRev) btnRev.disabled = false; if (btnSpec) btnSpec.disabled = false; }
+    };
+
+    if (btnSpec) btnSpec.onclick = () => {
       const pairs: string[] = [];
       document.querySelectorAll('#productDetails_techSpec_section_1 tr, #productDetails_detailBullets_sections1 tr, table tr').forEach(tr => {
         const cells = Array.from(tr.children).map(td => (td as HTMLElement).innerText.trim());
         if (cells.length >= 2) pairs.push(`- **${cells[0]}**: ${cells.slice(1).join(' ')}`);
       });
-      out.innerHTML = renderMarkdown(pairs.join('\n') || 'No specifications found.');
+      const md = pairs.join('\n') || 'No specifications found.';
+      out.innerHTML = renderMarkdown(md);
+      setCopy(md);
     };
   };
 
@@ -828,6 +882,7 @@ function runChat() {
   // Render the chat log
   main.innerHTML = `<div id="gf-chat-log" class="gf-chat-log"></div>`;
   if (SAVE_CHATS) { void loadAndRenderChatHistory(); }
+  else { renderChatMessages(SESSION_CHAT); }
   // Render inline composer only if the bottom bar is not visible for any reason
   const bar = document.getElementById('gf-bottom-chat') as HTMLDivElement | null;
   const isVisible = !!bar && getComputedStyle(bar).display !== 'none';
@@ -856,6 +911,10 @@ function runChat() {
       bubble.innerHTML = `<div class="who">${who}</div>${renderMarkdown(text)}`;
       row.appendChild(bubble); log.appendChild(row); log.scrollTop = log.scrollHeight;
       if (SAVE_CHATS) void persistChatMessage(who, text);
+      else {
+        SESSION_CHAT.push({ who, text, ts: Date.now() });
+        if (SESSION_CHAT.length > 50) SESSION_CHAT.shift();
+      }
     };
     const go = async () => {
       const q = inlineQ.value.trim(); if (!q) return;
@@ -1014,6 +1073,10 @@ if (bottomAsk && bottomQ) {
     log.appendChild(wrap);
     log.scrollTop = log.scrollHeight;
     if (SAVE_CHATS) void persistChatMessage(who, text);
+    else {
+      SESSION_CHAT.push({ who, text, ts: Date.now() });
+      if (SESSION_CHAT.length > 50) SESSION_CHAT.shift();
+    }
   };
 
   const goChat = async () => {
