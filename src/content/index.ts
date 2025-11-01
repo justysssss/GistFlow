@@ -77,15 +77,19 @@ function injectStyles() {
     .gf-md code { background: rgba(255,255,255,.08); padding: 2px 4px; border-radius: 6px; }
     .gf-md pre { background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.08); padding: 10px; border-radius: 10px; overflow: auto; }
   .gf-chat-log { display: flex; flex-direction: column; gap: 8px; }
+  /* Key Points list layout */
+  .gf-list { display: grid; gap: 8px; }
+  .gf-row { display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: start; }
+  .gf-row > div { line-height: 1.45; }
   /* Theme variants */
   .gf-sidebar.gf-theme-violet { --gf-accent:#6d5ef3; --gf-accent-shadow: rgba(109,94,243,.25); --gf-bg1: rgba(28,18,49,.95); --gf-bg2: rgba(19,13,36,.95); --gf-border: rgba(160,140,230,.22); }
   .gf-sidebar.gf-theme-teal { --gf-accent:#19c7b9; --gf-accent-shadow: rgba(25,199,185,.25); --gf-bg1: rgba(10,24,28,.95); --gf-bg2: rgba(8,18,22,.95); --gf-border: rgba(40,160,170,.25); }
   .gf-sidebar.gf-theme-sand { --gf-accent:#f0b56f; --gf-accent-shadow: rgba(240,181,111,.25); --gf-bg1: rgba(44,33,20,.95); --gf-bg2: rgba(27,21,14,.95); --gf-border: rgba(180,150,110,.28); }
   .gf-sidebar.gf-theme-forest { --gf-accent:#4cc38a; --gf-accent-shadow: rgba(76,195,138,.25); --gf-bg1: rgba(10,28,22,.95); --gf-bg2: rgba(6,20,16,.95); --gf-border: rgba(90,200,160,.22); }
   /* Output font-size options */
-  .gf-sidebar.gf-font-s .gf-md, .gf-sidebar.gf-font-s .gf-bubble { font-size: 13px; }
-  .gf-sidebar.gf-font-m .gf-md, .gf-sidebar.gf-font-m .gf-bubble { font-size: 14px; }
-  .gf-sidebar.gf-font-l .gf-md, .gf-sidebar.gf-font-l .gf-bubble { font-size: 16px; }
+  .gf-sidebar.gf-font-s .gf-md, .gf-sidebar.gf-font-s .gf-bubble, .gf-sidebar.gf-font-s .gf-list, .gf-sidebar.gf-font-s .gf-row > div { font-size: 13px; }
+  .gf-sidebar.gf-font-m .gf-md, .gf-sidebar.gf-font-m .gf-bubble, .gf-sidebar.gf-font-m .gf-list, .gf-sidebar.gf-font-m .gf-row > div { font-size: 14px; }
+  .gf-sidebar.gf-font-l .gf-md, .gf-sidebar.gf-font-l .gf-bubble, .gf-sidebar.gf-font-l .gf-list, .gf-sidebar.gf-font-l .gf-row > div { font-size: 16px; }
   `;
   document.head.appendChild(style);
 }
@@ -768,19 +772,27 @@ async function clearCachedHtml(kind: 'summary'|'points'): Promise<void> {
 async function runSummary() {
   // Try persistent cache first
   const cached = await getCachedHtml('summary');
-  if (cached) { summaryCacheHtml = cached; main.innerHTML = cached; bindCopy(); bindRefresh('summary'); return; }
+  if (cached) {
+    // If old cache contains a TL;DR header, discard and recompute once
+    if (/tl;\s*;?\s*dr/i.test(cached) || /TL;DR/i.test(cached)) {
+      await clearCachedHtml('summary');
+    } else {
+      summaryCacheHtml = cached; main.innerHTML = cached; bindCopy(); bindRefresh('summary'); return;
+    }
+  }
   if (summaryCacheHtml) { main.innerHTML = summaryCacheHtml; bindCopy(); bindRefresh('summary'); return; }
   main.innerHTML = `<div class="gf-panel gf-note">Summarizing…</div>`;
   const text = getPageText();
   const my = ++summaryToken;
   summarize(text).then(async (tldr) => {
     if (my !== summaryToken) return; // a newer run superseded this one
+    const cleaned = stripLeadingTldr(tldr);
     const html = `
       <div class="gf-toolbar">
         <button class="gf-btn" id="gf-copy">Copy</button>
         <button class="gf-btn" id="gf-refresh">Refresh</button>
       </div>
-      <div class="gf-panel">${renderMarkdown(tldr)}</div>`;
+      <div class="gf-panel">${renderMarkdown(cleaned)}</div>`;
     summaryCacheHtml = html;
     await setCachedHtml('summary', html);
     if (CURRENT_TAB === 'summary') { main.innerHTML = html; bindCopy(); bindRefresh('summary'); }
@@ -1057,6 +1069,22 @@ function renderError(e: unknown) {
 }
 
 // highlight feature removed
+
+// Remove model-added TL;DR prefaces from summaries
+function stripLeadingTldr(text: string): string {
+  let out = text.trimStart();
+  const patterns: RegExp[] = [
+    /^\s*here[’']?s a [^\n]*?tl\s*;?\s*dr[^\n]*:\s*/i, // "Here's a concise TL;DR summary:"
+    /^\s*(\*\*)?\s*tl\s*;?\s*dr\s*(\*\*)?\s*[:-]\s*/i, // TL;DR: or **TL;DR**:
+  ];
+  for (const re of patterns) {
+    if (re.test(out)) {
+      out = out.replace(re, '');
+      break;
+    }
+  }
+  return out;
+}
 
 // Capture current selection for context menu action
 document.addEventListener('selectionchange', () => {
