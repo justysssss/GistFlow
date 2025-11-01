@@ -6,6 +6,11 @@
 
 Get the gist, find your flow.
 
+<!-- Badges -->
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/justysssss/GistFlow?sort=semver)](https://github.com/justysssss/GistFlow/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-informational)](#)
+
 Gistflow is an on‑page AI sidebar for Chrome that understands the site you’re on. Summarize pages and videos, pull key points, draft Gmail replies, review GitHub issues/PRs, and chat with the page—without leaving your flow.
 
 <p align="center">
