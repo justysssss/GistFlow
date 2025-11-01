@@ -17,16 +17,70 @@ Gistflow is an on‑page AI sidebar for Chrome that understands the site you’r
 
 ---
 
-## Screenshots
+## Feature tour
+
+### 1) Quick popup
 
 <p align="center">
-  <img alt="Gmail Sidebar" src="public/Images/gmail_Gistflow_final.png" width="300" />
-  <img alt="GitHub Sidebar" src="public/Images/github_Gistflow.png" width="300" style="margin-left:12px;" />
+  <img alt="Popup" src="public/Images/main_popup.png" width="360" />
 </p>
+
+- Pick where the sidebar lives (Left/Right)
+- Choose a tone (Concise, Friendly, Professional, Casual)
+- One click “Open Sidebar” to start
+- Version label at the bottom for quick checks
+
+### 2) Settings you’ll actually use
+
 <p align="center">
-  <img alt="Article Sidebar" src="public/Images/gistflow_1pic.png" width="300" />
-  <img alt="YouTube Sidebar" src="public/Images/yt_Gistflow.png" width="300" style="margin-left:12px;" />
+  <img alt="Settings" src="public/Images/Settings-Gistflow.png" width="360" />
 </p>
+
+- Gemini API key (used only if on‑device AI isn’t available)
+- Show bottom chat bar on non‑Chat tabs
+- Output text size (S/M/L) and theme (Violet/Teal/Sand/Forest)
+- Save chats on this device, enable keyboard shortcuts
+- Autostart on this site
+
+### 3) Gmail actions: write it for me
+
+<p align="center">
+  <img alt="Gmail Sidebar" src="public/Images/gmail_Gistflow_final.png" width="420" />
+</p>
+
+- Keyword chips → 🪄 Generate a reply draft in your tone
+- Copy or Insert directly into Gmail’s composer
+- Output appears above the composer area for less scrolling
+
+### 4) GitHub actions: summarize and draft replies
+
+<p align="center">
+  <img alt="GitHub Sidebar" src="public/Images/github_Gistflow.png" width="420" />
+</p>
+
+- Summarize issues/PR discussions
+- Draft a review/reply with intent and key points
+- Copy/Insert into the comment box
+
+### 5) Read mode (docs/articles)
+
+<p align="center">
+  <img alt="Article Sidebar" src="public/Images/gistflow_1pic.png" width="420" />
+</p>
+
+- Summary and Key Points stay in sync with what you’re reading
+- Background completion + per‑URL cache (results are ready when you return)
+- Refresh button to recompute when the page changes
+
+### 6) YouTube: lectures, talks, and tutorials
+
+<p align="center">
+  <img alt="YouTube Sidebar" src="public/Images/yt_Gistflow.png" width="420" />
+</p>
+
+- Summarize long videos and extract actionable key takeaways
+- Key Points font scales correctly on YouTube (no shrinking)
+- Chat with the video page to clarify concepts
 
 ---
 
