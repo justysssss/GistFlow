@@ -9,8 +9,7 @@ Get the gist, find your flow.
 Gistflow is an on‑page AI sidebar for Chrome that understands the site you’re on. Summarize pages and videos, pull key points, draft Gmail replies, review GitHub issues/PRs, and chat with the page—without leaving your flow.
 
 <p align="center">
-  <img alt="Popup" src="public/Images/main_popup.png" width="340" />
-  <img alt="Settings" src="public/Images/Settings-Gistflow.png" width="340" style="margin-left:12px;" />
+  <img alt="Gistflow overview" src="public/Images/gistflow_thumbnail.png" width="640" />
 </p>
 
 > Works with Chrome’s built‑in AI when available. Falls back to Gemini with your API key.
