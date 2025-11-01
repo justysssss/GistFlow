@@ -9,7 +9,8 @@ Get the gist, find your flow.
 Gistflow is an on‑page AI sidebar for Chrome that understands the site you’re on. Summarize pages and videos, pull key points, draft Gmail replies, review GitHub issues/PRs, and chat with the page—without leaving your flow.
 
 <p align="center">
-  <img alt="Popup" src="public/Images/main_popup.png" width="520" />
+  <img alt="Popup" src="public/Images/main_popup.png" width="340" />
+  <img alt="Settings" src="public/Images/Settings-Gistflow.png" width="340" style="margin-left:12px;" />
 </p>
 
 > Works with Chrome’s built‑in AI when available. Falls back to Gemini with your API key.
@@ -19,12 +20,12 @@ Gistflow is an on‑page AI sidebar for Chrome that understands the site you’r
 ## Screenshots
 
 <p align="center">
-  <img alt="Settings" src="public/Images/Settings-Gistflow.png" width="360" />
-  <img alt="Gmail Sidebar" src="public/Images/gmail_Gistflow_final.png" width="360" />
+  <img alt="Gmail Sidebar" src="public/Images/gmail_Gistflow_final.png" width="300" />
+  <img alt="GitHub Sidebar" src="public/Images/github_Gistflow.png" width="300" style="margin-left:12px;" />
 </p>
 <p align="center">
-  <img alt="GitHub Sidebar" src="public/Images/github_Gistflow.png" width="360" />
-  <img alt="Article Sidebar" src="public/Images/gistflow_1pic.png" width="360" />
+  <img alt="Article Sidebar" src="public/Images/gistflow_1pic.png" width="300" />
+  <img alt="YouTube Sidebar" src="public/Images/yt_Gistflow.png" width="300" style="margin-left:12px;" />
 </p>
 
 ---
